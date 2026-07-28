@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 頸椎復健智慧教練 - 專業復健與記錄系統</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- MediaPipe Vision (Face Landmarker & Tasks) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.js" crossorigin="anonymous"></script>
+    <!-- Lottie Web 動畫庫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js"></script>
+    <!-- Canvas Confetti 慶祝特效 -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+        }
+        .mirrored {
+            transform: scaleX(-1);
+        }
+        /* 自訂美化捲軸 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(6, 182, 212, 0.4);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(6, 182, 212, 0.7);
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-white h-screen w-screen overflow-hidden flex flex-col justify-between select-none">
+
+    <!-- 頂部導覽列 -->
+    <header class="absolute top-0 left-0 right-0 z-40 flex items-center justify-between px-6 py-4 bg-gradient-to-b from-slate-950/90 to-transparent backdrop-blur-md">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-400 font-bold text-xl shadow-lg shadow-cyan-500/20">
+                AI
+            </div>
+            <div>
+                <h1 class="text-lg font-bold text-slate-100 tracking-wide">頸椎復健智慧教練 <span class="text-xs px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 font-normal ml-2">長輩關懷版</span></h1>
+                <p class="text-xs text-slate-400">即時姿勢追蹤與家屬日曆紀錄系統</p>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-4">
+            <div id="status-badge" class="flex items-center space-x-2 bg-slate-900/85 border border-slate-700/60 px-4 py-2 rounded-full text-xs font-medium backdrop-blur-md shadow-lg">
+                <span id="status-dot" class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                <span id="status-text" class="text-slate-300">正在初始化系統...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- 全螢幕主要區域 -->
+    <main class="relative w-full h-full flex items-center justify-center bg-slate-950">
+        <!-- 攝影機視訊與 Canvas 畫布（全螢幕背景） -->
+        <div class="absolute inset-0 w-full h-full flex items-center justify-center overflow-hidden">
+            <video id="webcam" class="absolute w-full h-full object-cover mirrored" autoplay playsinline muted></video>
+            <canvas id="output_canvas" class="absolute w-full h-full object-cover mirrored pointer-events-none"></canvas>
+        </div>
+
+        <!-- 全螢幕漸層裝飾罩 -->
+        <div class="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_30%,rgba(2,6,23,0.75)_100%)]"></div>
+
+        <!-- Lottie 動畫容器（成功時彈出） -->
+        <div id="lottie-container" class="absolute inset-0 pointer-events-none flex items-center justify-center z-30"></div>
+
+        <!-- 左側面板：動作選擇與即時計數 -->
+        <div class="absolute left-6 top-24 z-30 flex flex-col space-y-4 w-80">
+            <!-- 動作模式選擇卡片 -->
+            <div class="bg-slate-900/85 backdrop-blur-md border border-slate-700/60 rounded-2xl p-5 shadow-2xl">
+                <h2 class="text-xs font-semibold text-cyan-400 uppercase tracking-wider mb-3">復健訓練項目</h2>
+                <div class="space-y-2">
+                    <button onclick="setMode('flexion')" id="btn-flexion" class="w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-all bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/30 flex items-center justify-between">
+                        <span>頭部前屈與後仰</span>
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-slate-950/20">訓練中</span>
+                    </button>
+                    <button onclick="setMode('rotation')" id="btn-rotation" class="w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-all bg-slate-800/80 hover:bg-slate-800 text-slate-300 border border-slate-700/40 flex items-center justify-between">
+                        <span>左右旋轉運動</span>
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-slate-700/50 text-slate-400">解鎖中</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 計數與達標板 -->
+            <div class="bg-slate-900/85 backdrop-blur-md border border-slate-700/60 rounded-2xl p-5 shadow-2xl flex items-center justify-between">
+                <div>
+                    <span class="text-xs text-slate-400 font-medium uppercase tracking-wider">今日復健次數</span>
+                    <div class="text-4xl font-black text-cyan-400 mt-1 flex items-baseline space-x-1">
+                        <span id="rep-count">0</span>
+                        <span class="text-sm font-normal text-slate-400">/ 10 次</span>
+                    </div>
+                </div>
+                <div class="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-inner">
+                    <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右側面板：家屬專用復健日曆紀錄系統 -->
+        <div class="absolute right-6 top-24 z-30 flex flex-col w-88 bg-slate-900/90 backdrop-blur-xl border border-slate-700/80 rounded-2xl p-5 shadow-2xl">
+            <div class="flex items-center justify-between mb-3 pb-3 border-b border-slate-800">
+                <div class="flex items-center space-x-2">
+                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    <h2 class="text-sm font-bold text-slate-100">家屬專用復健日曆</h2>
+                </div>
+                <span id="current-month-label" class="text-xs font-semibold text-cyan-400 bg-cyan-500/10 px-2.5 py-1 rounded-lg border border-cyan-500/20">2026年 7月</span>
+            </div>
+
+            <!-- 星期標題 -->
+            <div class="grid grid-cols-7 gap-1 text-center text-xs font-medium text-slate-400 mb-2">
+                <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+            </div>
+
+            <!-- 日曆網格容器 -->
+            <div id="calendar-grid" class="grid grid-cols-7 gap-1.5 text-center text-xs">
+                <!-- 動態生成日曆 -->
+            </div>
+
+            <!-- 當日長輩狀況摘要 -->
+            <div class="mt-4 pt-3 border-t border-slate-800 bg-slate-950/40 rounded-xl p-3 border border-slate-800/60">
+                <div class="flex items-center justify-between text-xs mb-1.5">
+                    <span id="selected-date-title" class="font-semibold text-slate-300">今日狀況摘要</span>
+                    <span id="selected-date-status" class="text-emerald-400 font-bold">已達標 (10次)</span>
+                </div>
+                <p id="selected-date-desc" class="text-xs text-slate-400 leading-relaxed">長輩今日精神良好，前屈與後仰動作標準，家屬可放心。</p>
+            </div>
+        </div>
+
+        <!-- 下方中央：即時語音與動作提示浮動大面板 -->
+        <div class="absolute bottom-8 z-30 max-w-2xl w-full px-6 left-1/2 -translate-x-1/2" style="margin-left: -80px;">
+            <div class="bg-slate-900/90 backdrop-blur-xl border border-slate-700/80 rounded-2xl p-6 shadow-2xl flex items-center space-x-5">
+                <div id="feedback-icon" class="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 shadow-lg">
+                    <svg class="w-6 h-6 animate-spin" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </div>
+                <div class="flex-1">
+                    <div class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">AI 語音互動教練回饋</div>
+                    <div id="feedback-text" class="text-xl font-bold text-slate-100 tracking-wide">系統準備中，請將身體對準鏡頭...</div>
+                </div>
+                <button onclick="toggleVoice()" id="voice-toggle-btn" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-300 transition flex items-center space-x-2">
+                    <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+                    <span id="voice-status-label">語音開啟</span>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- 核心 AI 互動與日曆邏輯腳本 -->
+    <script type="module">
+        import {
+            FaceLandmarker,
+            FilesetResolver
+        } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
+
+        let faceLandmarker = undefined;
+        let webcamRunning = false;
+        let voiceEnabled = true;
+        let currentMode = 'flexion'; 
+        
+        const video = document.getElementById("webcam");
+        const canvasElement = document.getElementById("output_canvas");
+        const canvasCtx = canvasElement.getContext("2d");
+        
+        let repCount = 0;
+        const targetReps = 10;
+        let exerciseState = 'READY'; 
+        let lastSpokenMessage = "";
+        let lottieAnim = null;
+
+        // 模擬家屬日曆資料庫 (Local Storage 支援)
+        const todayStr = new Date().toISOString().split('T')[0];
+        let rehabHistory = JSON.parse(localStorage.getItem('rehab_history') || JSON.stringify({
+            [todayStr]: { count: 0, status: '進行中', note: '今日尚未完成完整復健訓練。' }
+        }));
+
+        // 初始化日曆介面
+        function renderCalendar() {
+            const grid = document.getElementById("calendar-grid");
+            grid.innerHTML = '';
+            
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = now.getMonth();
+            
+            document.getElementById("current-month-label").textContent = `${year}年 ${month + 1}月`;
+            
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            
+            // 填入空白前綴
+            for (let i = 0; i < firstDay; i++) {
+                const emptyCell = document.createElement("div");
+                grid.appendChild(emptyCell);
+            }
+            
+            // 填入當月日期
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const cell = document.createElement("div");
+                cell.className = "py-2 rounded-xl flex flex-col items-center justify-center cursor-pointer transition border border-transparent";
+                
+                const record = rehabHistory[dateStr];
+                const isToday = (dateStr === todayStr);
+                
+                if (record && record.count >= targetReps) {
+                    cell.className += " bg-emerald-500/20 border-emerald-500/40 text-emerald-300 font-bold shadow-sm shadow-emerald-500/20";
+                } else if (record && record.count > 0) {
+                    cell.className += " bg-amber-500/20 border-amber-500/40 text-amber-300";
+                } else {
+                    cell.className += " bg-slate-800/40 hover:bg-slate-800 text-slate-300";
+                }
+                
+                if (isToday) {
+                    cell.className += " ring-2 ring-cyan-400";
+                }
+                
+                cell.innerHTML = `<span>${day}</span>`;
+                if (record && record.count >= targetReps) {
+                    cell.innerHTML += `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-0.5"></span>`;
+                } else {
+                    cell.innerHTML += `<span class="w-1.5 h-1.5 rounded-full bg-transparent mt-0.5"></span>`;
+                }
+                
+                cell.onclick = () => showDayDetail(dateStr, record);
+                grid.appendChild(cell);
+            }
+        }
+
+        function showDayDetail(dateStr, record) {
+            document.getElementById("selected-date-title").textContent = `${dateStr} 復健紀錄`;
+            if (record) {
+                document.getElementById("selected-date-status").textContent = `完成 ${record.count} 次 (${record.status})`;
+                document.getElementById("selected-date-desc").textContent = record.note;
+            } else {
+                document.getElementById("selected-date-status").textContent = "無紀錄";
+                document.getElementById("selected-date-desc").textContent = "當日長輩未進行復健運動。";
+            }
+        }
+
+        function updateTodayRecord() {
+            let status = repCount >= targetReps ? '已達標' : '進行中';
+            let note = repCount >= targetReps ? '長輩今日狀況極佳，順利完成所有頸椎復健運動！' : `今日已完成 ${repCount} 次，請繼續加油。`;
+            
+            rehabHistory[todayStr] = { count: repCount, status: status, note: note };
+            localStorage.setItem('rehab_history', JSON.stringify(rehabHistory));
+            renderCalendar();
+            
+            // 更新下方摘要
+            showDayDetail(todayStr, rehabHistory[todayStr]);
+        }
+
+        // 初始化語音合成 (TTS)
+        function speak(text) {
+            if (!voiceEnabled || !('speechSynthesis' in window)) return;
+            if (lastSpokenMessage === text) return;
+            
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'zh-TW';
+            utterance.rate = 1.05;
+            utterance.pitch = 1.1;
+            window.speechSynthesis.onend = () => { lastSpokenMessage = ""; };
+            window.speechSynthesis.speak(utterance);
+            lastSpokenMessage = text;
+        }
+
+        window.toggleVoice = function() {
+            voiceEnabled = !voiceEnabled;
+            const label = document.getElementById("voice-status-label");
+            label.textContent = voiceEnabled ? "語音開啟" : "語音關閉";
+            if(voiceEnabled) speak("語音互動已開啟");
+        }
+
+        window.setMode = function(mode) {
+            currentMode = mode;
+            const btnFlex = document.getElementById("btn-flexion");
+            const btnRot = document.getElementById("btn-rotation");
+            
+            if (mode === 'flexion') {
+                btnFlex.className = "w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-all bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/30 flex items-center justify-between";
+                btnFlex.querySelector('span:last-child').className = "text-xs px-2 py-0.5 rounded-full bg-slate-950/20";
+                btnFlex.querySelector('span:last-child').textContent = "訓練中";
+                
+                btnRot.className = "w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-all bg-slate-800/85 hover:bg-slate-800 text-slate-300 border border-slate-700/40 flex items-center justify-between";
+                btnRot.querySelector('span:last-child').className = "text-xs px-2 py-0.5 rounded-full bg-slate-700/50 text-slate-400";
+                btnRot.querySelector('span:last-child').textContent = "解鎖中";
+                speak("已切換為頭部前屈與後仰訓練");
+            } else {
+                btnRot.className = "w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-all bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/30 flex items-center justify-between";
+                btnRot.querySelector('span:last-child').className = "text-xs px-2 py-0.5 rounded-full bg-slate-950/20";
+                btnRot.querySelector('span:last-child').textContent = "訓練中";
+                
+                btnFlex.className = "w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-all bg-slate-800/85 hover:bg-slate-800 text-slate-300 border border-slate-700/40 flex items-center justify-between";
+                btnFlex.querySelector('span:last-child').className = "text-xs px-2 py-0.5 rounded-full bg-slate-700/50 text-slate-400";
+                btnFlex.querySelector('span:last-child').textContent = "解鎖中";
+                speak("已切換為左右旋轉運動訓練");
+            }
+        }
+
+        // 華麗慶祝特效 (Confetti + Lottie)
+        function triggerCelebrationEffects() {
+            // Canvas Confetti 絢麗彩帶特效
+            confetti({
+                particleCount: 100,
+                spread: 70,
+                origin: { y: 0.6 }
+            });
+
+            // Lottie 動畫
+            const container = document.getElementById('lottie-container');
+            container.innerHTML = '';
+            lottieAnim = lottie.loadAnimation({
+                container: container,
+                renderer: 'svg',
+                loop: false,
+                autoplay: true,
+                path: 'https://assets2.lottiefiles.com/packages/lf20_touohxv0.json'
+            });
+            setTimeout(() => { container.innerHTML = ''; }, 3000);
+        }
+
+        function updateFeedback(msg, type = 'normal') {
+            const textEl = document.getElementById("feedback-text");
+            const iconEl = document.getElementById("feedback-icon");
+            textEl.textContent = msg;
+            
+            if (type === 'success') {
+                iconEl.className = "w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0 shadow-lg shadow-emerald-500/20";
+                iconEl.innerHTML = `<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>`;
+            } else if (type === 'warning') {
+                iconEl.className = "w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 shadow-lg";
+                iconEl.innerHTML = `<svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
+            } else {
+                iconEl.className = "w-12 h-12 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shrink-0 shadow-lg";
+                iconEl.innerHTML = `<svg class="w-6 h-6 animate-pulse" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>`;
+            }
+        }
+
+        async function initializeFaceLandmarker() {
+            const vision = await FilesetResolver.forVisionTasks(
+                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+            );
+            faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+                    delegate: "GPU"
+                },
+                runningMode: "VIDEO",
+                numFaces: 1
+            });
+            startWebcam();
+        }
+
+        function startWebcam() {
+            navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } }).then((stream) => {
+                video.srcObject = stream;
+                video.addEventListener("loadeddata", () => {
+                    webcamRunning = true;
+                    document.getElementById("status-dot").className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
+                    document.getElementById("status-text").textContent = "AI 追蹤運行中";
+                    updateFeedback("準備就緒！請將臉部對準畫面中。");
+                    speak("系統已就緒，請開始復健。");
+                    predictWebcam();
+                });
+            }).catch(err => {
+                document.getElementById("status-text").textContent = "攝影機權限失敗";
+                updateFeedback("無法啟動攝影機，請檢查瀏覽器權限！", "warning");
+            });
+        }
+
+        let lastVideoTime = -1;
+        async function predictWebcam() {
+            if (canvasElement.width !== video.videoWidth || canvasElement.height !== video.videoHeight) {
+                canvasElement.width = video.videoWidth;
+                canvasElement.height = video.videoHeight;
+            }
+
+            if (faceLandmarker && webcamRunning) {
+                let startTimeMs = performance.now();
+                if (lastVideoTime !== video.currentTime) {
+                    lastVideoTime = video.currentTime;
+                    const results = faceLandmarker.detectForVideo(video, startTimeMs);
+
+                    canvasCtx.save();
+                    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+                    if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+                        const landmarks = results.faceLandmarks[0];
+                        // 已移除畫布上的繪製點與格線 (DrawingUtils 相關邏輯全數拿掉)
+
+                        const noseTip = landmarks[1]; // 鼻尖
+
+                        if (noseTip) {
+                            if (currentMode === 'flexion') {
+                                const posY = noseTip.y;
+                                
+                                if (exerciseState === 'READY') {
+                                    updateFeedback("請將頭部慢慢往下低（前屈），再往後仰。", "normal");
+                                    if (posY > 0.55) {
+                                        exerciseState = 'MOVING';
+                                        speak("很好，請繼續保持");
+                                    }
+                                } else if (exerciseState === 'MOVING') {
+                                    updateFeedback("做得很好！正在偵測動作完成度...", "normal");
+                                    if (posY < 0.42) {
+                                        repCount++;
+                                        if (repCount > targetReps) repCount = targetReps;
+                                        document.getElementById("rep-count").textContent = repCount;
+                                        exerciseState = 'SUCCESS';
+                                        
+                                        updateTodayRecord();
+
+                                        const praiseList = ["做得好！", "太棒了，動作非常標準！", "繼續加油，做得漂亮！"];
+                                        const msg = praiseList[Math.floor(Math.random() * praiseList.length)];
+                                        updateFeedback(msg, 'success');
+                                        speak(msg);
+                                        triggerCelebrationEffects();
+
+                                        setTimeout(() => { exerciseState = 'READY'; }, 2000);
+                                    }
+                                }
+                            } else if (currentMode === 'rotation') {
+                                const posX = noseTip.x;
+
+                                if (exerciseState === 'READY') {
+                                    updateFeedback("請將頭部緩慢向左或向右旋轉。", "normal");
+                                    if (Math.abs(posX - 0.5) > 0.12) {
+                                        exerciseState = 'MOVING';
+                                        speak("轉得很好，請轉回正面");
+                                    }
+                                } else if (exerciseState === 'MOVING') {
+                                    updateFeedback("太棒了！維持節奏...", "normal");
+                                    if (Math.abs(posX - 0.5) < 0.04) {
+                                        repCount++;
+                                        if (repCount > targetReps) repCount = targetReps;
+                                        document.getElementById("rep-count").textContent = repCount;
+                                        exerciseState = 'SUCCESS';
+                                        
+                                        updateTodayRecord();
+
+                                        const msg = "太棒了！完成一次旋轉訓練。";
+                                        updateFeedback(msg, 'success');
+                                        speak(msg);
+                                        triggerCelebrationEffects();
+
+                                        setTimeout(() => { exerciseState = 'READY'; }, 2000);
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        updateFeedback("未偵測到您的臉部，請調整至鏡頭前。", "warning");
+                    }
+                    canvasCtx.restore();
+                }
+            }
+            if (webcamRunning) {
+                window.requestAnimationFrame(predictWebcam);
+            }
+        }
+
+        // 初始化
+        renderCalendar();
+        initializeFaceLandmarker();
+    </script>
+</body>
+</html>
